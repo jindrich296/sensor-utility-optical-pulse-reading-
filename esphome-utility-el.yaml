@@ -1,0 +1,204 @@
+# Set some variables for convenience
+substitutions:
+  node_name: utility-ele2
+  device_name: ESP32 Optical pulse reader
+  device_description: "ESP32 Optical pulse reader"
+  pulse_pin: GPIO32
+  pulse_led: GPIO04
+  status_led: GPIO2
+  battery_pin: GPIO32
+  pulse_rate: '500' # imp/kWh rate ⬇ #
+
+esphome:
+  name: $node_name
+  comment: '${device_description}'
+  platform: ESP32
+  board: nodemcu-32s
+  
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+
+ota:
+  password: !secret ota_pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.1.164
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+    dns1: 192.168.1.1
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Utility ele2 Fallback Hotspot"
+    password: !secret ap_password
+
+captive_portal:
+
+# Enable Web server.
+web_server:
+  port: 80
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Text sensors with general information.
+text_sensor:
+  # Expose ESPHome version as sensor.
+  - platform: version
+    name: ${node_name}_espversion
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: ${node_name}_ip
+    ssid:
+      name: ${node_name}_ssid
+    bssid:
+      name: ${node_name}_bssid
+
+###############################################################
+
+# A reboot button is always useful
+button:
+  - platform: restart
+    name: ${node_name}_restart
+
+  - platform: template
+    name: ${node_name}_reset_total_energy
+    id: button_reset_total
+    on_press:
+      - pulse_meter.set_total_pulses:
+          id: sensor_energy_pulse_meter
+          value: 0
+
+###################################################################
+
+###################################################################
+
+output:
+  - platform: gpio
+    pin: ${status_led}
+    id: output_blue
+  - platform: gpio
+    pin: ${pulse_led}
+    id: output_green
+
+light:
+  - platform: binary
+    internal: true
+    id: led_blue
+    name: ${status_led}_blue
+    output: output_blue
+
+switch:
+  - platform: gpio
+    name: ${node_name}_green_led
+    pin: ${pulse_led}
+    id: green_led
+
+  - platform: gpio
+    name: ${node_name}_onboard_led
+    pin: ${status_led}
+    id: blue_led
+
+sensor:
+  # Uptime sensor.
+  - platform: uptime
+    name: ${node_name}_uptime
+    update_interval: 60s
+
+  # WiFi Signal sensor.
+  - platform: wifi_signal
+    name: ${node_name}_wifisignal
+    update_interval: 60s
+
+###################################################################
+################# Photoresistor ###############################
+
+  # Pulse meter
+  - platform: pulse_meter
+    name: ${node_name}_power_consumption
+    id: sensor_energy_pulse_meter
+    unit_of_measurement: 'W'
+    state_class: measurement
+    device_class: power
+    icon: mdi:flash-outline
+    accuracy_decimals: 0
+    pin: ${pulse_pin}
+    # internal_filter: 100ms
+    on_value:
+      then:
+        - light.turn_on:
+            id: led_blue
+        - delay: 0.5s
+        - light.turn_off:
+            id: led_blue
+    filters:
+      # multiply value = (60 / imp value) * 1000
+      # - multiply: 60
+      - lambda: return x * ((60.0 / ${pulse_rate}) * 1000.0);
+    total:
+      name: ${node_name}_total_energy
+      id: sensor_total_energy
+      unit_of_measurement: 'kWh'
+      icon: mdi:circle-slice-3
+      state_class: total_increasing
+      device_class: energy
+      accuracy_decimals: 3
+      filters:
+        # multiply value = 1 / imp value
+        # - multiply: 0.001
+        - lambda: return x * (1.0 / ${pulse_rate});
+  # Total day useage
+  - platform: total_daily_energy
+    name: ${node_name}_daily_energy
+    id: sensor_total_daily_energy
+    power_id: sensor_energy_pulse_meter
+    unit_of_measurement: 'kWh'
+    icon: mdi:circle-slice-3
+    state_class: total_increasing
+    device_class: energy
+    accuracy_decimals: 3
+    filters:
+      # Multiplication factor from W to kW is 0.001
+      - multiply: 0.001
+
+################# BATTERY ###############################
+
+  #Voltage sensor
+  - platform: adc
+    pin: ${battery_pin}
+    name: ${node_name}_battery
+    entity_category: diagnostic
+#    attenuation: 0db
+    unit_of_measurement: "V" 
+    device_class: battery
+    accuracy_decimals: 3
+    update_interval: 300s
+    filters:
+      - multiply: 3.7
+    id: battery_voltage
+  - platform: template
+    name: ${node_name}_battery_volt
+    unit_of_measurement: 'V'
+    update_interval: 300s
+    accuracy_decimals: 2
+    lambda: |-
+      return (id(battery_voltage).state);
+  - platform: template
+    name: ${node_name}_battery_perc
+    update_interval: 300s
+    accuracy_decimals: 0
+    lambda: |-
+      return (((id(battery_voltage).state) / 3.7) * 100);
+    entity_category: diagnostic
+    unit_of_measurement: "%"  
+    device_class: battery
+
