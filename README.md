@@ -1,5 +1,5 @@
 
-# Sensor temp and hum CWT-TH03S via RS485
+# Sensor utility optical pulse reading
 
 Temperature and humidity sensor using CWT-TH03S sensor via RS485. I need wired sensor in sauna for temperatures above 100 celsius. This is due to technical issues with the SHT30 sensor which was often disconnecting due to lenght of wires in my sauna. 
 
